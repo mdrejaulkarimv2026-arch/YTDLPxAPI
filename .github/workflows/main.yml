@@ -1,0 +1,176 @@
+name: 🔄 Update PO Token & Cookies
+
+on:
+  schedule:
+    # Every 3 hours
+    - cron: '0 */3 * * *'
+  workflow_dispatch:
+
+jobs:
+  update-potoken:
+    name: Generate & Update PO Token / Cookies
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 🐳 Start bgutil PO Token provider
+        run: |
+          docker run -d --rm \
+            --name bgutil-provider \
+            --init \
+            -p 4416:4416 \
+            brainicism/bgutil-ytdlp-pot-provider:latest
+          echo "Started bgutil provider container"
+
+      - name: ⏳ Wait for provider /ping
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 3 http://127.0.0.1:4416/ping >/dev/null 2>&1; then
+              echo "bgutil provider is up: $(curl -fsS http://127.0.0.1:4416/ping)"
+              exit 0
+            fi
+            echo "Waiting for bgutil provider (attempt ${i}/30)..."
+            sleep 2
+          done
+          echo "::error::bgutil provider did not become ready in 60s"
+          docker logs bgutil-provider || true
+          exit 1
+
+      - name: 🔑 Generate PO Token
+        id: generate
+        env:
+          POT_PROVIDER_URL: http://127.0.0.1:4416
+        run: |
+          set -euo pipefail
+          node scripts/get_potoken.js > potoken.json
+          echo "--- potoken.json ---"
+          cat potoken.json
+          echo "--------------------"
+
+      - name: 📤 POST PO Token to Server
+        if: success()
+        env:
+          API_URL: ${{ secrets.API_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${API_URL:-}" ]; then
+            echo "::error::API_URL secret is not set."
+            exit 1
+          fi
+
+          POTOKEN=$(jq -r '.potoken' potoken.json)
+          if [ -z "${POTOKEN}" ] || [ "${POTOKEN}" = "null" ]; then
+            echo "::error::potoken missing or invalid"
+            exit 1
+          fi
+
+          VISITOR_DATA=$(jq -r '.visitorData // empty' potoken.json)
+          EXPIRES_AT=$(jq -r '.expiresAt // empty' potoken.json)
+          if [ -z "${EXPIRES_AT}" ]; then
+            EXPIRES_AT=$(date -u -d '+8 hours' '+%Y-%m-%dT%H:%M:%SZ')
+          fi
+
+          BODY=$(jq -n \
+            --arg pot "${POTOKEN}" \
+            --arg vd  "${VISITOR_DATA}" \
+            --arg exp "${EXPIRES_AT}" \
+            '{potoken: $pot, expiresAt: $exp}
+             + (if $vd != "" then {visitorData: $vd} else {} end)')
+
+          echo "POST ${API_URL}/api/admin/potoken"
+
+          for i in 1 2 3; do
+            HTTP_CODE=$(curl -sS -o /tmp/potoken-resp.json -w "%{http_code}" \
+              -X POST \
+              -H "Content-Type: application/json" \
+              --data-binary "${BODY}" \
+              "${API_URL}/api/admin/potoken")
+            [ "${HTTP_CODE}" = "200" ] && break
+            echo "Attempt ${i} failed (HTTP ${HTTP_CODE}), retrying in 5s..."
+            sleep 5
+          done
+
+          echo "Response (${HTTP_CODE}):"
+          cat /tmp/potoken-resp.json
+          echo
+
+          if [ "${HTTP_CODE}" != "200" ]; then
+            echo "::error::POST /api/admin/potoken returned HTTP ${HTTP_CODE}"
+            exit 1
+          fi
+
+      - name: 🍪 Upload Cookies to Server
+        if: success()
+        env:
+          API_URL: ${{ secrets.API_URL }}
+          COOKIES_TXT: ${{ secrets.COOKIES_TXT }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${API_URL:-}" ]; then
+            echo "::error::API_URL secret is not set."
+            exit 1
+          fi
+
+          if [ -z "${COOKIES_TXT:-}" ]; then
+            echo "::warning::COOKIES_TXT secret is not set — skipping cookie upload."
+            exit 0
+          fi
+
+          # Write secret to a temp file to preserve exact line endings
+          COOKIES_FILE=$(mktemp)
+          printf '%s\n' "${COOKIES_TXT}" > "${COOKIES_FILE}"
+          trap 'rm -f "${COOKIES_FILE}"' EXIT
+
+          # Validate Netscape format (7 tab-separated fields)
+          if ! grep -qP '^\S+\t\S+\t\S+\t\S+\t\S+\t\S+\t\S+' "${COOKIES_FILE}"; then
+            echo "::error::COOKIES_TXT does not appear to be valid Netscape format."
+            exit 1
+          fi
+
+          COOKIE_COUNT=$(grep -cP '^\S+\t\S+\t\S+\t\S+\t\S+\t\S+\t\S+' "${COOKIES_FILE}")
+          echo "Uploading ${COOKIE_COUNT} cookie(s) to ${API_URL}/api/admin/cookies"
+
+          for i in 1 2 3; do
+            HTTP_CODE=$(curl -sS -o /tmp/cookies-resp.txt -w "%{http_code}" \
+              -X POST \
+              -H "Content-Type: text/plain" \
+              --data-binary @"${COOKIES_FILE}" \
+              "${API_URL}/api/admin/cookies")
+            [ "${HTTP_CODE}" = "200" ] && break
+            echo "Attempt ${i} failed (HTTP ${HTTP_CODE}), retrying in 5s..."
+            sleep 5
+          done
+
+          echo "Response (${HTTP_CODE}):"
+          cat /tmp/cookies-resp.txt
+          echo
+
+          if [ "${HTTP_CODE}" != "200" ]; then
+            echo "::error::POST /api/admin/cookies returned HTTP ${HTTP_CODE}"
+            exit 1
+          fi
+
+          echo "✅ Cookies uploaded successfully (${COOKIE_COUNT} entries)"
+
+      - name: ✅ Health Check
+        if: success()
+        env:
+          API_URL: ${{ secrets.API_URL }}
+        run: |
+          set -euo pipefail
+          echo "GET ${API_URL}/health"
+          curl -fsS "${API_URL}/health" | tee /dev/stderr
+          echo
+
+      - name: 🛑 Stop bgutil provider
+        if: always()
+        run: docker stop bgutil-provider 2>/dev/null || true
