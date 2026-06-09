@@ -23,4 +23,9 @@ module.exports = {
     timeoutMs: parseInt(process.env.DOWNLOAD_TIMEOUT_MS || '1800000', 10),
   },
   githubWebhookSecret: process.env.GITHUB_WEBHOOK_SECRET || '',
+  queue: {
+    maxConcurrency: parseInt(process.env.QUEUE_MAX_CONCURRENCY || '3', 10),
+    rateLimitPerMin: parseInt(process.env.QUEUE_RATE_LIMIT_PER_MIN || '30', 10),
+    maxBatchSize: parseInt(process.env.QUEUE_MAX_BATCH_SIZE || '20', 10),
+  },
 };

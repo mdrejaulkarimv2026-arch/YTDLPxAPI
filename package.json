@@ -10,7 +10,9 @@
     "pm2:stop": "pm2 stop ytdlp-api",
     "pm2:restart": "pm2 restart ytdlp-api",
     "pm2:logs": "pm2 logs ytdlp-api",
-    "get-potoken": "node scripts/get_potoken.js"
+    "get-potoken": "node scripts/get_potoken.js",
+    "deno:start": "deno run --allow-all server.deno.ts",
+    "deno:dev": "deno run --allow-all --watch server.deno.ts"
   },
   "dependencies": {
     "express": "^4.19.2",

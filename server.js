@@ -8,6 +8,8 @@ const logger = require('./utils/logger');
 const potoken = require('./services/potokenService');
 const storage = require('./services/storageService');
 const ffmpeg = require('./services/ffmpegService');
+const queue = require('./services/queueService');
+const ytdlp = require('./services/ytdlpService');
 
 const app = express();
 
@@ -52,6 +54,10 @@ app.get('/', (req, res) => {
         'POST /api/transcode',
         'GET  /api/probe?filename=...',
         'GET  /api/status',
+        'GET  /api/queue/status',
+        'GET  /api/queue',
+        'POST /api/batch',
+        'GET  /api/batch/:id',
       ],
       admin: [
         'POST /api/admin/potoken',
@@ -94,6 +100,19 @@ async function bootstrap() {
   }
 
   await potoken.startProvider();
+
+  queue.setProcessor(async (job) => {
+    logger.info(`[Queue] Processing job ${job.id}: ${job.url}`);
+    const result = await ytdlp.downloadToDisk(job.url, {
+      type: job.type,
+      format: job.format,
+      audioFormat: job.audioFormat,
+      audioBitrate: job.quality || '192k',
+      title: null,
+      embed: true,
+    });
+    return result;
+  });
 
   app.listen(config.port, () => {
     logger.success(`🚀 YT-DLP API Server running on http://0.0.0.0:${config.port}`);

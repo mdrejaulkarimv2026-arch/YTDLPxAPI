@@ -8,6 +8,7 @@ const potoken = require('../services/potokenService');
 const ffmpeg = require('../services/ffmpegService');
 const presets = require('../services/ffmpegPresets');
 const metadataSvc = require('../services/metadataService');
+const queue = require('../services/queueService');
 const config = require('../config');
 const logger = require('../utils/logger');
 const filename = require('../utils/filename');
@@ -502,6 +503,90 @@ router.get('/probe', async (req, res, next) => {
 
 router.get('/status', (req, res) => {
   res.json({ success: true, data: { ...potoken.getStatus(), ffmpeg: ffmpeg.getStatus() } });
+});
+
+// ============ Queue endpoints ============
+
+// GET /api/queue/status
+router.get('/queue/status', (req, res) => {
+  res.json({ success: true, data: queue.getQueueStatus() });
+});
+
+// GET /api/queue?state=pending&limit=50&offset=0
+router.get('/queue', (req, res) => {
+  const { state, limit = 50, offset = 0 } = req.query;
+  res.json({ success: true, data: queue.getQueue({ state, limit: parseInt(limit, 10), offset: parseInt(offset, 10) }) });
+});
+
+// DELETE /api/queue/:id — cancel a pending job
+router.delete('/queue/:id', (req, res) => {
+  const cancelled = queue.cancelJob(req.params.id);
+  if (!cancelled) return res.status(404).json({ success: false, error: 'Job not found or already finished' });
+  res.json({ success: true, message: 'Job cancelled' });
+});
+
+// ============ Batch download endpoints ============
+
+// POST /api/batch
+// Body: { urls: [{ url, type?, quality?, resolution? }], type?, quality?, resolution?, priority? }
+router.post('/batch', async (req, res, next) => {
+  try {
+    const { urls, type, quality, resolution, audioFormat, priority } = req.body;
+    if (!Array.isArray(urls) || urls.length === 0) {
+      return res.status(400).json({ success: false, error: 'Missing or empty urls array' });
+    }
+    if (urls.length > config.queue.maxBatchSize) {
+      return res.status(400).json({ success: false, error: `Max batch size is ${config.queue.maxBatchSize}` });
+    }
+
+    const rateCheck = queue.checkRateLimit(req);
+    if (!rateCheck.allowed) {
+      return res.status(429).json({
+        success: false,
+        error: 'Rate limit exceeded',
+        retryAfterMs: rateCheck.retryAfterMs,
+      });
+    }
+
+    const items = urls.map((item) => {
+      if (typeof item === 'string') {
+        return { url: item, type, quality, resolution, audioFormat };
+      }
+      return {
+        url: item.url,
+        type: item.type || type || 'video',
+        quality: item.quality || quality,
+        resolution: item.resolution || resolution,
+        audioFormat: item.audioFormat || audioFormat,
+        priority: item.priority || priority || 'normal',
+      };
+    });
+
+    for (const item of items) {
+      if (!item.url || !validateUrl(item.url)) {
+        return res.status(400).json({ success: false, error: `Invalid URL: ${item.url}` });
+      }
+    }
+
+    const batch = queue.enqueueBatch(items, { type, quality, resolution, audioFormat, priority });
+    logger.info(`[Batch] Enqueued batch ${batch.id} with ${items.length} items`);
+
+    res.status(202).json({
+      success: true,
+      data: {
+        batchId: batch.id,
+        total: items.length,
+        statusUrl: `/api/batch/${batch.id}`,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
+// GET /api/batch/:id
+router.get('/batch/:id', (req, res) => {
+  const batch = queue.getBatch(req.params.id);
+  if (!batch) return res.status(404).json({ success: false, error: 'Batch not found' });
+  res.json({ success: true, data: batch });
 });
 
 module.exports = router;

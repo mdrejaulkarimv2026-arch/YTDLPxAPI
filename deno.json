@@ -1,0 +1,21 @@
+{
+  "tasks": {
+    "start": "deno run --allow-all server.deno.ts",
+    "dev": "deno run --allow-all --watch server.deno.ts"
+  },
+  "imports": {
+    "express": "npm:express@^4.19.2",
+    "cors": "npm:cors@^2.8.5",
+    "helmet": "npm:helmet@^7.1.0",
+    "morgan": "npm:morgan@^1.10.0",
+    "dotenv": "npm:dotenv@^16.4.5",
+    "uuid": "npm:uuid@^9.0.1",
+    "axios": "npm:axios@^1.7.7"
+  },
+  "nodeModulesDir": "auto",
+  "compilerOptions": {
+    "strict": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  }
+}
