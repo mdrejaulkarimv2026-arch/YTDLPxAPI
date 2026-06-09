@@ -1,7 +1,8 @@
 /**
- * Lightweight metadata + thumbnail embedding service.
+ * Metadata + thumbnail embedding service.
  *
- * Embeds only: thumbnail (cover art), title, artist, album, date.
+ * Embeds: thumbnail (cover art), title, artist, album, date,
+ * developer credit, software/tool credit, about info.
  * Uses ffmpeg -c copy — no re-encoding, fast and lossless.
  */
 
@@ -13,6 +14,10 @@ const config = require('../config');
 const logger = require('../utils/logger');
 
 const EMBED_ENABLED = (process.env.EMBED_METADATA ?? 'true').toLowerCase() !== 'false';
+const DEV_CREDIT     = process.env.DEVELOPER_CREDIT     || 'Mohammad Kobir Shah';
+const DEV_CREDIT_URL = process.env.DEVELOPER_CREDIT_URL || 'https://github.com/MohammadKobirShah';
+const API_NAME       = process.env.API_NAME              || 'YT-DLP API Server';
+const API_VERSION    = process.env.API_VERSION           || '2.2.0';
 
 function sanitize(s, maxLen = 500) {
   if (s === null || s === undefined) return null;
@@ -21,14 +26,16 @@ function sanitize(s, maxLen = 500) {
   return s || null;
 }
 
-function buildLightMetadataArgs(info = {}) {
+function buildMetadataArgs(info = {}) {
   const args = [];
   const set = (k, v) => { const c = sanitize(v); if (c) args.push('-metadata', `${k}=${c}`); };
 
+  // Basic tags
   set('title', info.title);
   set('artist', info.uploader || info.channel);
   set('album', info.uploader || info.channel);
 
+  // Date
   if (info.upload_date && /^\d{8}$/.test(info.upload_date)) {
     const year = info.upload_date.slice(0, 4);
     set('date', `${year}-${info.upload_date.slice(4,6)}-${info.upload_date.slice(6,8)}`);
@@ -36,6 +43,20 @@ function buildLightMetadataArgs(info = {}) {
   } else if (info.timestamp) {
     set('year', String(new Date(info.timestamp * 1000).getFullYear()));
   }
+
+  // About / description
+  if (info.description) {
+    set('description', sanitize(info.description, 2000));
+  }
+
+  // Developer credit
+  set('publisher', `${API_NAME} by ${DEV_CREDIT}`);
+  set('encoded_by', `${DEV_CREDIT} <${DEV_CREDIT_URL}>`);
+  set('author', DEV_CREDIT);
+
+  // Software / tool credit
+  set('tool', `yt-dlp + ffmpeg via ${API_NAME}`);
+  set('software', `${API_NAME} v${API_VERSION} by ${DEV_CREDIT}`);
 
   return args;
 }
@@ -87,7 +108,7 @@ async function embedMetadataInPlace(inputPath, info = {}) {
   }
 
   args.push('-c', 'copy');
-  args.push(...buildLightMetadataArgs(info));
+  args.push(...buildMetadataArgs(info));
 
   const extLower = ext.toLowerCase();
   if (extLower === '.mp4' || extLower === '.m4a' || extLower === '.mov') {
