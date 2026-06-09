@@ -7,7 +7,6 @@ const logger = require('../utils/logger');
 const potoken = require('./potokenService');
 const storage = require('./storageService');
 const ffmpeg = require('./ffmpegService');
-const metadataSvc = require('./metadataService');
 
 function validateUrl(url) {
   if (typeof url !== 'string') return false;
@@ -380,14 +379,9 @@ class YtdlpService {
     if (!validateUrl(url)) throw new Error('Invalid URL. Only http(s) URLs are allowed.');
     const {
       type = 'video', format, audioFormat = 'mp3', audioBitrate = '192k',
-      title = null, embed = metadataSvc.EMBED_ENABLED,
+      title = null, embed = false,
     } = options;
-    const { path: tmpPath, info } = await this._downloadToTempFile(url, { type, format, audioFormat, audioBitrate, probeInfo: !!title || embed });
-
-    if (embed && ffmpeg.isAvailable()) {
-      const r = await metadataSvc.embedMetadataInPlace(tmpPath, info || {});
-      if (!r.success) logger.warn(`[downloadToDisk] embed failed, returning un-embedded: ${r.error}`);
-    }
+    const { path: tmpPath, info } = await this._downloadToTempFile(url, { type, format, audioFormat, audioBitrate, probeInfo: !!title });
 
     const finalExt = path.extname(tmpPath).slice(1);
     const finalName = (() => {
@@ -486,13 +480,8 @@ class YtdlpService {
 
   async streamWithEmbed(url, res, options = {}) {
     if (!validateUrl(url)) throw new Error('Invalid URL. Only http(s) URLs are allowed.');
-    const { type = 'video', format, audioFormat = 'mp3', embed = metadataSvc.EMBED_ENABLED } = options;
-    const { path: tmpPath, info, ext } = await this._downloadToTempFile(url, { type, format, audioFormat, probeInfo: embed });
-
-    if (embed && ffmpeg.isAvailable() && info) {
-      const r = await metadataSvc.embedMetadataInPlace(tmpPath, info);
-      if (!r.success) logger.warn(`[streamWithEmbed] embed failed, streaming without: ${r.error}`);
-    }
+    const { type = 'video', format, audioFormat = 'mp3', embed = false } = options;
+    const { path: tmpPath, info, ext } = await this._downloadToTempFile(url, { type, format, audioFormat, probeInfo: false });
 
     const stats = fs.statSync(tmpPath);
     const mimeMap = {
@@ -506,7 +495,6 @@ class YtdlpService {
     res.setHeader('Content-Length', stats.size);
     res.setHeader('X-Suggested-Filename', require('../utils/filename').headerSafe(suggested));
     res.setHeader('X-Title', require('../utils/filename').headerSafe(info?.title || ''));
-    res.setHeader('X-Embedded-Metadata', embed ? 'attempted' : 'skipped');
 
     const cleanup = () => { try { fs.unlinkSync(tmpPath); } catch {} };
     res.on('close', cleanup);
