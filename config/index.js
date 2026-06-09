@@ -21,6 +21,8 @@ module.exports = {
   download: {
     maxDuration: parseInt(process.env.MAX_DOWNLOAD_DURATION_SEC || '21600', 10),
     timeoutMs: parseInt(process.env.DOWNLOAD_TIMEOUT_MS || '1800000', 10),
+    defaultHeight: parseInt(process.env.DEFAULT_VIDEO_HEIGHT || '720', 10),
+    defaultLang: process.env.DEFAULT_AUDIO_LANG || 'bn',
   },
   githubWebhookSecret: process.env.GITHUB_WEBHOOK_SECRET || '',
   queue: {

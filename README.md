@@ -298,6 +298,14 @@ DOWNLOAD_DIR=./downloads
 
 MAX_DOWNLOAD_DURATION_SEC=21600           # 6 hours
 DOWNLOAD_TIMEOUT_MS=1800000               # 30 min
+
+DEFAULT_VIDEO_HEIGHT=720                  # default max height (720, 1080, 2160)
+DEFAULT_AUDIO_LANG=bn                     # default audio lang (bn, en, hi, etc.)
+
+EMBED_METADATA=true                       # auto-embed thumbnail + tags + credit
+QUEUE_MAX_CONCURRENCY=3                   # max parallel queue downloads
+QUEUE_RATE_LIMIT_PER_MIN=30               # per-IP batch rate limit
+QUEUE_MAX_BATCH_SIZE=20                   # max URLs per batch request
 ```
 
 ---
@@ -381,6 +389,24 @@ DOWNLOAD_TIMEOUT_MS=1800000               # 30 min
 ```bash
 curl -o video.mp4 "http://localhost:3000/api/download?url=https://youtu.be/dQw4w9WgXcQ"
 ```
+
+### Format selector — height + language
+
+```bash
+# 720p video with Bengali audio (default)
+curl -o video.mp4 "http://localhost:3000/api/download?url=https://youtu.be/dQw4w9WgXcQ"
+
+# 480p video with English audio
+curl -o video.mp4 "http://localhost:3000/api/download?url=https://youtu.be/dQw4w9WgXcQ&height=480&lang=en"
+
+# 1080p with any audio (no language filter)
+curl -o video.mp4 "http://localhost:3000/api/download?url=https://youtu.be/dQw4w9WgXcQ&height=1080"
+
+# Custom yt-dlp format string (advanced)
+curl -o video.mp4 "http://localhost:3000/api/download?url=https://youtu.be/dQw4w9WgXcQ&format=bestvideo[height<=720]+bestaudio[language=bn]/best"
+```
+
+Default format: `bestvideo[height<=720]+bestaudio[language=bn]/best` (configurable via `DEFAULT_VIDEO_HEIGHT` and `DEFAULT_AUDIO_LANG` in `.env`)
 
 ### Extract 48 kbps mono mp3
 
@@ -466,6 +492,36 @@ curl "http://localhost:3000/api/dump?url=https://youtu.be/dQw4w9WgXcQ" | jq '.da
 
 ```bash
 curl "http://localhost:3000/api/search?q=lofi+beats&limit=5"
+```
+
+### Batch download (multiple URLs)
+
+```bash
+# Submit a batch of URLs for download
+curl -X POST http://localhost:3000/api/batch \
+  -H "Content-Type: application/json" \
+  -d '{
+    "urls": [
+      "https://youtu.be/dQw4w9WgXcQ",
+      "https://youtu.be/9bZkp7q19f0"
+    ],
+    "height": 720,
+    "lang": "bn",
+    "priority": "normal"
+  }'
+
+# Check batch status
+curl "http://localhost:3000/api/batch/<batch-id>"
+```
+
+### Queue status
+
+```bash
+# View queue stats
+curl "http://localhost:3000/api/queue/status"
+
+# List all jobs
+curl "http://localhost:3000/api/queue"
 ```
 
 ---

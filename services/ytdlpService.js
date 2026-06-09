@@ -303,6 +303,9 @@ class YtdlpService {
     } else {
       if (format && format !== 'best') {
         args.push('-f', format);
+        if (format.includes('+') && ffmpeg.isAvailable()) {
+          args.push('--merge-output-format', 'mp4');
+        }
       } else {
         if (!ffmpeg.isAvailable()) {
           logger.warn('FFmpeg missing — falling back to single-file best format');
@@ -439,6 +442,9 @@ class YtdlpService {
         args.push('-x', '--audio-format', audioFormat, '--audio-quality', audioBitrate);
       } else if (format && format !== 'best') {
         args.push('-f', format);
+        if (format.includes('+') && ffmpeg.isAvailable()) {
+          args.push('--merge-output-format', 'mp4');
+        }
       } else {
         if (!ffmpeg.isAvailable()) {
           logger.warn('FFmpeg missing — using single-file best format');

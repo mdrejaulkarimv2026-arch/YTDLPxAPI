@@ -125,9 +125,18 @@ router.get('/subtitles', async (req, res, next) => {
 
 // ============ Download endpoints ============
 
+function buildFormatString(height, lang) {
+  const h = height || config.download.defaultHeight;
+  const l = lang || config.download.defaultLang;
+  if (h && l) return `bestvideo[height<=${h}]+bestaudio[language=${l}]/bestvideo[height<=${h}]+bestaudio/best`;
+  if (h) return `bestvideo[height<=${h}]+bestaudio/best`;
+  if (l) return `bestvideo+bestaudio[language=${l}]/best`;
+  return null;
+}
+
 router.get('/download', async (req, res, next) => {
   try {
-    const { url, type = 'video', format, audioFormat = 'mp3', embed = 'true' } = req.query;
+    const { url, type = 'video', format, audioFormat = 'mp3', embed = 'true', height, lang } = req.query;
     if (!url) return res.status(400).json({ success: false, error: 'Missing url parameter' });
     if (!validateUrl(url)) return res.status(400).json({ success: false, error: 'Invalid URL' });
 
@@ -135,22 +144,24 @@ router.get('/download', async (req, res, next) => {
       return res.status(503).json({ success: false, error: 'Audio extraction requires ffmpeg', hint: 'Install ffmpeg' });
     }
 
+    const fmt = format || buildFormatString(height, lang);
     const shouldEmbed = embed !== 'false' && metadataSvc.EMBED_ENABLED;
-    await ytdlp.streamWithEmbed(url, res, { type, format, audioFormat, embed: shouldEmbed });
+    await ytdlp.streamWithEmbed(url, res, { type, format: fmt, audioFormat, embed: shouldEmbed });
   } catch (err) { next(err); }
 });
 
 router.get('/download/save', async (req, res, next) => {
   try {
-    const { url, type = 'video', format, audioFormat = 'mp3', embed = 'true' } = req.query;
+    const { url, type = 'video', format, audioFormat = 'mp3', embed = 'true', height, lang } = req.query;
     if (!url) return res.status(400).json({ success: false, error: 'Missing url parameter' });
     if (!validateUrl(url)) return res.status(400).json({ success: false, error: 'Invalid URL' });
     if (type === 'audio' && !ffmpeg.isAvailable()) {
       return res.status(503).json({ success: false, error: 'Audio extraction requires ffmpeg' });
     }
+    const fmt = format || buildFormatString(height, lang);
     const title = await ytdlp.getTitle(url);
     const shouldEmbed = embed !== 'false';
-    const result = await ytdlp.downloadToDisk(url, { type, format, audioFormat, title, embed: shouldEmbed });
+    const result = await ytdlp.downloadToDisk(url, { type, format: fmt, audioFormat, title, embed: shouldEmbed });
     res.json({ success: true, data: result });
   } catch (err) { next(err); }
 });
