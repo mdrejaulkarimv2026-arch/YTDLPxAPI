@@ -7,6 +7,7 @@ const logger = require('../utils/logger');
 const potoken = require('./potokenService');
 const storage = require('./storageService');
 const ffmpeg = require('./ffmpegService');
+const metadataSvc = require('./metadataService');
 
 function validateUrl(url) {
   if (typeof url !== 'string') return false;
@@ -379,9 +380,13 @@ class YtdlpService {
     if (!validateUrl(url)) throw new Error('Invalid URL. Only http(s) URLs are allowed.');
     const {
       type = 'video', format, audioFormat = 'mp3', audioBitrate = '192k',
-      title = null, embed = false,
+      title = null, embed = metadataSvc.EMBED_ENABLED,
     } = options;
-    const { path: tmpPath, info } = await this._downloadToTempFile(url, { type, format, audioFormat, audioBitrate, probeInfo: !!title });
+    const { path: tmpPath, info } = await this._downloadToTempFile(url, { type, format, audioFormat, audioBitrate, probeInfo: !!title || embed });
+
+    if (embed && ffmpeg.isAvailable()) {
+      await metadataSvc.embedMetadataInPlace(tmpPath, info || {}).catch(() => {});
+    }
 
     const finalExt = path.extname(tmpPath).slice(1);
     const finalName = (() => {
@@ -480,8 +485,12 @@ class YtdlpService {
 
   async streamWithEmbed(url, res, options = {}) {
     if (!validateUrl(url)) throw new Error('Invalid URL. Only http(s) URLs are allowed.');
-    const { type = 'video', format, audioFormat = 'mp3', embed = false } = options;
-    const { path: tmpPath, info, ext } = await this._downloadToTempFile(url, { type, format, audioFormat, probeInfo: false });
+    const { type = 'video', format, audioFormat = 'mp3', embed = metadataSvc.EMBED_ENABLED } = options;
+    const { path: tmpPath, info, ext } = await this._downloadToTempFile(url, { type, format, audioFormat, probeInfo: embed });
+
+    if (embed && ffmpeg.isAvailable() && info) {
+      await metadataSvc.embedMetadataInPlace(tmpPath, info).catch(() => {});
+    }
 
     const stats = fs.statSync(tmpPath);
     const mimeMap = {

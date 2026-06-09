@@ -109,7 +109,7 @@ async function bootstrap() {
       audioFormat: job.audioFormat,
       audioBitrate: job.quality || '192k',
       title: null,
-      embed: false,
+      embed: true,
     });
     return result;
   });

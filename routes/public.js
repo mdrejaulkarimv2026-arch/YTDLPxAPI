@@ -7,6 +7,7 @@ const ytdlp = require('../services/ytdlpService');
 const potoken = require('../services/potokenService');
 const ffmpeg = require('../services/ffmpegService');
 const presets = require('../services/ffmpegPresets');
+const metadataSvc = require('../services/metadataService');
 const queue = require('../services/queueService');
 const config = require('../config');
 const logger = require('../utils/logger');
@@ -126,7 +127,7 @@ router.get('/subtitles', async (req, res, next) => {
 
 router.get('/download', async (req, res, next) => {
   try {
-    const { url, type = 'video', format, audioFormat = 'mp3' } = req.query;
+    const { url, type = 'video', format, audioFormat = 'mp3', embed = 'true' } = req.query;
     if (!url) return res.status(400).json({ success: false, error: 'Missing url parameter' });
     if (!validateUrl(url)) return res.status(400).json({ success: false, error: 'Invalid URL' });
 
@@ -134,20 +135,22 @@ router.get('/download', async (req, res, next) => {
       return res.status(503).json({ success: false, error: 'Audio extraction requires ffmpeg', hint: 'Install ffmpeg' });
     }
 
-    await ytdlp.streamWithEmbed(url, res, { type, format, audioFormat, embed: false });
+    const shouldEmbed = embed !== 'false' && metadataSvc.EMBED_ENABLED;
+    await ytdlp.streamWithEmbed(url, res, { type, format, audioFormat, embed: shouldEmbed });
   } catch (err) { next(err); }
 });
 
 router.get('/download/save', async (req, res, next) => {
   try {
-    const { url, type = 'video', format, audioFormat = 'mp3' } = req.query;
+    const { url, type = 'video', format, audioFormat = 'mp3', embed = 'true' } = req.query;
     if (!url) return res.status(400).json({ success: false, error: 'Missing url parameter' });
     if (!validateUrl(url)) return res.status(400).json({ success: false, error: 'Invalid URL' });
     if (type === 'audio' && !ffmpeg.isAvailable()) {
       return res.status(503).json({ success: false, error: 'Audio extraction requires ffmpeg' });
     }
     const title = await ytdlp.getTitle(url);
-    const result = await ytdlp.downloadToDisk(url, { type, format, audioFormat, title, embed: false });
+    const shouldEmbed = embed !== 'false';
+    const result = await ytdlp.downloadToDisk(url, { type, format, audioFormat, title, embed: shouldEmbed });
     res.json({ success: true, data: result });
   } catch (err) { next(err); }
 });
@@ -180,6 +183,7 @@ router.get('/download/quality', async (req, res, next) => {
     const tempInput = path.join(config.downloadDir, `${tempId}-src.%(ext)s`);
     const tempOutput = path.join(config.downloadDir, `${tempId}-${quality}.${preset.suffix}`);
     const title = await ytdlp.getTitle(url);
+    const probeInfo = metadataSvc.EMBED_ENABLED ? await ytdlp.getInfo(url).catch(() => null) : null;
 
     logger.info(`[quality] Downloading source for ${quality} audio conversion...`);
     const dl = await new Promise((resolve, reject) => {
@@ -211,6 +215,10 @@ router.get('/download/quality', async (req, res, next) => {
     if (!result.success) {
       try { fs.unlinkSync(tempOutput); } catch {}
       return res.status(500).json({ success: false, error: 'Conversion failed', details: result.error });
+    }
+
+    if (metadataSvc.EMBED_ENABLED && probeInfo) {
+      await metadataSvc.embedMetadataInPlace(tempOutput, probeInfo).catch(() => {});
     }
 
     const stats = fs.statSync(tempOutput);
@@ -265,6 +273,7 @@ router.get('/download/resolution', async (req, res, next) => {
     const tempId = uuidv4();
     const mimeMap = { mp4: 'video/mp4', webm: 'video/webm', mkv: 'video/x-matroska', gif: 'image/gif' };
     const title = await ytdlp.getTitle(url);
+    const probeInfo = metadataSvc.EMBED_ENABLED ? await ytdlp.getInfo(url).catch(() => null) : null;
 
     // ============ Smart merge path ============
     if (mode !== 'transcode') {
@@ -310,6 +319,9 @@ router.get('/download/resolution', async (req, res, next) => {
         });
 
         const stats = fs.statSync(dlPath);
+        if (metadataSvc.EMBED_ENABLED && probeInfo) {
+          await metadataSvc.embedMetadataInPlace(dlPath, probeInfo).catch(() => {});
+        }
         res.setHeader('Content-Disposition', filename.buildContentDisposition(title, preset.suffix, resolution));
         res.setHeader('Content-Type', mimeMap[preset.suffix] || 'application/octet-stream');
         res.setHeader('Content-Length', stats.size);
@@ -378,6 +390,10 @@ router.get('/download/resolution', async (req, res, next) => {
     if (!result.success) {
       try { fs.unlinkSync(tempOutput); } catch {}
       return res.status(500).json({ success: false, error: 'Transcode failed', details: result.error });
+    }
+
+    if (metadataSvc.EMBED_ENABLED && probeInfo) {
+      await metadataSvc.embedMetadataInPlace(tempOutput, probeInfo).catch(() => {});
     }
 
     const stats = fs.statSync(tempOutput);
