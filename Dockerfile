@@ -2,7 +2,7 @@
 # ===================================================================
 # DL-API — YT-DLP API Server
 # Base: Debian 12 (Bookworm) Slim + Node.js 20 LTS
-# Includes: ffmpeg, yt-dlp (NIGHTLY by default), bgutil-ytdlp-pot-provider
+# Includes: ffmpeg, yt-dlp (NIGHTLY by default), bgutil-ytdlp-pot-provider, Deno
 # ===================================================================
 
 FROM node:20-bookworm-slim
@@ -35,6 +35,13 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/* \
  && ffmpeg -version | head -n1 \
  && ffprobe -version | head -n1
+
+# -------------------------------------------------------------------
+# Deno (alternative runtime)
+# -------------------------------------------------------------------
+RUN curl -fsSL https://deno.land/install.sh | sh \
+ && ln -sf /root/.deno/bin/deno /usr/local/bin/deno \
+ && deno --version
 
 # -------------------------------------------------------------------
 # yt-dlp — NIGHTLY by default (override with --build-arg YTDLP_CHANNEL=stable)
