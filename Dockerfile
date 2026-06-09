@@ -31,6 +31,7 @@ RUN apt-get update \
         ffmpeg \
         tini \
         tzdata \
+        unzip \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* \
  && ffmpeg -version | head -n1 \
